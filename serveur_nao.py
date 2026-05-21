@@ -1,5 +1,25 @@
-#serveur_nao.py
-#a ouvrir dans choregraphe avant le reste
+# =============================================================================
+# serveur_nao.py — Serveur de commandes NAO (Python 2.7, Chorégraphe)
+#
+# À ouvrir dans Chorégraphe AVANT de lancer l'application.
+# Traduit les commandes texte reçues en mouvements physiques via NAOqi.
+#
+# Ports :
+#   9561 : commandes (navigation + contrôle manuel)
+#   8080 : flux vidéo JPEG (4 octets taille + données JPEG)
+#
+# Identification du client (port 9561) :
+#   1ère ligne = "CONTROL" → client contrôle manuel (moveToward continu)
+#   1ère ligne = JSON       → client navigation (moveTo bloquant case par case)
+#
+# Deux modes de mouvement :
+#   Navigation  (MOUVEMENTS_ITIN) : moveTo bloquant, 0.3m par case
+#   Contrôle    (VITESSES_CTRL)   : moveToward non bloquant, continu
+#
+# Note Python 2.7 :
+#   t.setDaemon(True) au lieu de Thread(daemon=True)
+#   PIL.Image.fromstring au lieu de frombytes
+# =============================================================================
 import socket
 import sys
 import math
@@ -20,16 +40,19 @@ def log(msg):
     print(msg)
     sys.stdout.flush()
 
+# ── Scène (navigation itinéraire) ─────────────────────────────────────────────
 scene = None
 
 def verifier_case(x, y):
     if scene is None:
         return "OBSTACLE"
+
     if not (0 <= y < len(scene) and 0 <= x < len(scene[0])):
         return "OBSTACLE"
-    val = scene[y][x]
-    if val in ("X", "0", "1"):
+
+    if scene[y][x] in ("X", "0", "1"):
         return "OBSTACLE"
+
     return "OK"
 
 time.sleep(2)
@@ -47,249 +70,753 @@ except Exception as e:
     CAM_OK = False
     log("Camera non disponible : {}".format(e))
 
-# ── Initialisation robot ──────────────────────────────────────────────────────
+# ── Initialisation commune ────────────────────────────────────────────────────
 
 def init_robot(conn):
-    """Initialise le robot et envoie PRET au client."""
+
     try:
         conn.send("INIT:Activation des moteurs...\n".encode())
         life.setState("disabled")
+
     except Exception as e:
         log("ALAutonomousLife non disponible : {}".format(e))
-        conn.send("INIT:Activation des moteurs (sans ALAutonomousLife)...\n".encode())
+        conn.send(
+            "INIT:Activation des moteurs (sans ALAutonomousLife)...\n".encode()
+        )
+
     conn.send("INIT:WakeUp...\n".encode())
+
     motion.wakeUp()
+
+    try:
+        motion.setExternalCollisionProtectionEnabled("All", True)
+    except:
+        pass
+
+    try:
+        motion.setFallManagerEnabled(True)
+    except:
+        pass
+
     conn.send("INIT:Mise en position...\n".encode())
+
     posture.goToPosture("StandInit", 0.5)
+
     conn.send("PRET\n".encode())
-    log("NAO pret, signal PRET envoye.")
 
-# ── Mouvements ────────────────────────────────────────────────────────────────
+    log("NAO pret.")
 
-MOUVEMENTS = {
-    "rotation":        (lambda: motion.moveTo(0, 0, math.pi),                                                         "NAO a effectue la rotation 180\n"),
-    "rotation_gauche": (lambda: motion.moveTo(0.001, 0, math.pi / 2),                                                 "NAO a effectue la rotation gauche\n"),
-    "rotation_droite": (lambda: motion.moveTo(0.001, 0, -math.pi / 2),                                                "NAO a effectue la rotation droite\n"),
-    "avant":           (lambda: motion.moveTo(0.3, 0, 0),                                                              "NAO a avance\n"),
-    "arriere":         (lambda: motion.moveTo(-0.3, 0, 0),                                                             "NAO a recule\n"),
-    "gauche":          (lambda: (motion.moveTo(0.001, 0, math.pi / 2),  time.sleep(1), motion.moveTo(0.3, 0, 0)),     "NAO a tourne a gauche et avance\n"),
-    "droite":          (lambda: (motion.moveTo(0.001, 0, -math.pi / 2), time.sleep(1), motion.moveTo(0.3, 0, 0)),     "NAO a tourne a droite et avance\n"),
+# ═════════════════════════════════════════════════════════════════════════════
+# FONCTIONS ITINÉRAIRE
+# ═════════════════════════════════════════════════════════════════════════════
+
+MOUVEMENTS_ITIN = {
+    "rotation": (
+        lambda: motion.moveTo(0, 0, math.pi),
+        "NAO a effectue la rotation 180\n"
+    ),
+
+    "rotation_gauche": (
+        lambda: motion.moveTo(0.001, 0, math.pi / 2),
+        "NAO a effectue la rotation gauche\n"
+    ),
+
+    "rotation_droite": (
+        lambda: motion.moveTo(0.001, 0, -math.pi / 2),
+        "NAO a effectue la rotation droite\n"
+    ),
+
+    "avant": (
+        lambda: motion.moveTo(0.3, 0, 0),
+        "NAO a avance\n"
+    ),
+
+    "arriere": (
+        lambda: motion.moveTo(-0.3, 0, 0),
+        "NAO a recule\n"
+    ),
+
+    "gauche": (
+        lambda: (
+            motion.moveTo(0.001, 0, math.pi / 2),
+            time.sleep(1),
+            motion.moveTo(0.3, 0, 0)
+        ),
+        "NAO a tourne a gauche et avance\n"
+    ),
+
+    "droite": (
+        lambda: (
+            motion.moveTo(0.001, 0, -math.pi / 2),
+            time.sleep(1),
+            motion.moveTo(0.3, 0, 0)
+        ),
+        "NAO a tourne a droite et avance\n"
+    ),
 }
 
 def jouer_mystical():
+
     try:
         anim = ALProxy("ALAnimationPlayer", IP, PORT_NAO)
+
         log("Animation Mystical en cours...")
+
         anim.run("animations/Stand/Entertainment/Mystical_1")
+
         log("Animation Mystical terminee.")
+
     except Exception as e:
+
         log("Mystical_1 non disponible : {}".format(e))
+
         try:
             anim = ALProxy("ALAnimationPlayer", IP, PORT_NAO)
             anim.run("animations/Stand/Entertainment/Mystical_2")
+
         except Exception as e2:
             log("Mystical_2 aussi indisponible : {}".format(e2))
 
-def traiter_commande(conn, commande):
-    """Traite une commande et renvoie True si on doit stopper."""
+def traiter_commande_itin(conn, commande):
+
     commande = commande.strip()
+
     if not commande:
         return False
-    log("Commande recue : {}".format(commande))
+
+    log("[ITIN] {}".format(commande))
 
     if commande.startswith("verifier:"):
-        coords   = commande.split(":")[1].strip("[]").split(",")
-        cx, cy   = int(coords[0]), int(coords[1])
+
+        coords = commande.split(":")[1].strip("[]").split(",")
+
+        cx, cy = int(coords[0]), int(coords[1])
+
         resultat = verifier_case(cx, cy)
-        log("Verification [{},{}] -> {}".format(cx, cy, resultat))
+
         conn.send("{}\n".format(resultat).encode())
 
     elif commande == "mystical":
+
         jouer_mystical()
+
         conn.send("Animation Mystical terminee\n".encode())
 
     elif commande == "stop":
+
         conn.send("Arret demande\n".encode())
+
         return True
 
-    elif commande in MOUVEMENTS:
-        action, feedback = MOUVEMENTS[commande]
+    elif commande in MOUVEMENTS_ITIN:
+
+        action, feedback = MOUVEMENTS_ITIN[commande]
+
         action()
+
         conn.send(feedback.encode())
 
     else:
-        conn.send("Commande inconnue : {}\n".format(commande).encode())
+
+        conn.send(
+            "Commande inconnue : {}\n".format(commande).encode()
+        )
 
     return False
 
-# ── Serveur caméra (port 8080) ────────────────────────────────────────────────
+# ═════════════════════════════════════════════════════════════════════════════
+# CONTROLE MANUEL
+# ═════════════════════════════════════════════════════════════════════════════
+
+VITESSES_CTRL = {
+    "avant":           ( 0.9,  0.0,  0.0),
+    "arriere":         (-0.9,  0.0,  0.0),
+    "gauche":          ( 0.0,  1.0,  0.0),
+    "droite":          ( 0.0, -1.0,  0.0),
+    "rotation_gauche": ( 0.0,  0.0,  0.9),
+    "rotation_droite": ( 0.0,  0.0, -0.9),
+}
+
+INC_TETE = 0.15
+
+LIMITES_TETE = {
+    "HeadYaw":   (-2.0857, 2.0857),
+    "HeadPitch": (-0.6720, 0.5149),
+}
+
+_mouvement_actif = threading.Event()
+
+_commande_ctrl = {
+    "vx": 0.0,
+    "vy": 0.0,
+    "vth": 0.0
+}
+
+_ctrl_lock = threading.Lock()
+
+def _boucle_movetoward():
+
+    while True:
+
+        _mouvement_actif.wait()
+
+        with _ctrl_lock:
+            vx  = _commande_ctrl["vx"]
+            vy  = _commande_ctrl["vy"]
+            vth = _commande_ctrl["vth"]
+
+        if vx == 0.0 and vy == 0.0 and vth == 0.0:
+
+            motion.stopMove()
+
+            _mouvement_actif.clear()
+
+            continue
+
+        try:
+
+            motion.moveToward(
+                vx,
+                vy,
+                vth,
+                [
+                    ["MaxStepX",         0.06],
+                    ["MaxStepY",         0.14],
+                    ["MaxStepTheta",     0.4],
+                    ["MaxStepFrequency", 0.6],
+                    ["StepHeight",       0.04],
+                    ["TorsoWx",          0.0],
+                    ["TorsoWy",          0.0]
+                ]
+            )
+
+        except Exception as e:
+
+            log("Erreur moveToward : {}".format(e))
+
+        time.sleep(0.05)
+
+t_ctrl = threading.Thread(target=_boucle_movetoward)
+
+t_ctrl.setDaemon(True)
+
+t_ctrl.start()
+
+def _lire_angle_tete(joint):
+
+    try:
+        return motion.getAngles(joint, True)[0]
+
+    except:
+        return 0.0
+
+def _set_angle_tete(joint, valeur):
+
+    lo, hi = LIMITES_TETE[joint]
+
+    valeur = max(lo, min(hi, valeur))
+
+    try:
+        motion.setAngles(joint, valeur, 0.15)
+
+    except Exception as e:
+        log("Erreur tete {} : {}".format(joint, e))
+
+def traiter_commande_ctrl(conn, commande):
+
+    commande = commande.strip()
+
+    if not commande:
+        return False
+
+    log("[CTRL] {}".format(commande))
+
+    if commande.startswith("debut:"):
+
+        action = commande[6:]
+
+        if action in VITESSES_CTRL:
+
+            vx, vy, vth = VITESSES_CTRL[action]
+
+            with _ctrl_lock:
+                _commande_ctrl["vx"]  = vx
+                _commande_ctrl["vy"]  = vy
+                _commande_ctrl["vth"] = vth
+
+            _mouvement_actif.set()
+
+            conn.send("OK\n".encode())
+
+        else:
+
+            conn.send(
+                "Action inconnue : {}\n".format(action).encode()
+            )
+
+    elif commande.startswith("fin:"):
+
+        with _ctrl_lock:
+            _commande_ctrl["vx"]  = 0.0
+            _commande_ctrl["vy"]  = 0.0
+            _commande_ctrl["vth"] = 0.0
+
+        conn.send("OK\n".encode())
+
+    elif commande.startswith("tete:"):
+
+        direction = commande[5:]
+
+        if direction == "haut":
+            _set_angle_tete(
+                "HeadPitch",
+                _lire_angle_tete("HeadPitch") - INC_TETE
+            )
+
+        elif direction == "bas":
+            _set_angle_tete(
+                "HeadPitch",
+                _lire_angle_tete("HeadPitch") + INC_TETE
+            )
+
+        elif direction == "gauche":
+            _set_angle_tete(
+                "HeadYaw",
+                _lire_angle_tete("HeadYaw") + INC_TETE
+            )
+
+        elif direction == "droite":
+            _set_angle_tete(
+                "HeadYaw",
+                _lire_angle_tete("HeadYaw") - INC_TETE
+            )
+
+        elif direction == "centre":
+            _set_angle_tete("HeadYaw", 0.0)
+            _set_angle_tete("HeadPitch", 0.0)
+
+        conn.send("OK\n".encode())
+
+    elif commande == "bonjour":
+
+        try:
+
+            names  = [
+                "RShoulderPitch",
+                "RShoulderRoll",
+                "RElbowYaw",
+                "RElbowRoll"
+            ]
+
+            angles = [-0.1, -0.5, 1.0, 0.5]
+
+            speed = 0.2
+
+            motion.setAngles(names, angles, speed)
+
+            for i in range(3):
+
+                motion.setAngles("RElbowRoll", 1.0, 0.3)
+
+                time.sleep(0.4)
+
+                motion.setAngles("RElbowRoll", 0.3, 0.3)
+
+                time.sleep(0.4)
+
+            posture.goToPosture("StandInit", 0.3)
+
+            conn.send("Bonjour joue\n".encode())
+
+        except Exception as e:
+
+            log("Erreur bonjour : {}".format(e))
+
+            conn.send(
+                ("Erreur bonjour : {}\n".format(str(e))).encode()
+            )
+
+    elif commande == "sit":
+
+        try:
+
+            posture.goToPosture("Sit", 0.5)
+
+            conn.send("Assis\n".encode())
+
+        except Exception as e:
+
+            log("Erreur sit : {}".format(e))
+
+            conn.send(
+                "Erreur sit : {}\n".format(e).encode()
+            )
+
+    elif commande == "standup":
+
+        try:
+
+            posture.goToPosture("StandInit", 0.5)
+
+            conn.send("Debout\n".encode())
+
+        except Exception as e:
+
+            log("Erreur standup : {}".format(e))
+
+            conn.send(
+                "Erreur standup : {}\n".format(e).encode()
+            )
+
+    elif commande.startswith("dire:"):
+
+        texte = commande[5:].strip()
+
+        try:
+
+            if isinstance(texte, unicode):
+                texte = texte.encode("utf-8")
+
+            tts = ALProxy("ALTextToSpeech", IP, PORT_NAO)
+
+            if texte:
+
+                tts.say(texte)
+
+                conn.send(
+                    ("Dit : {}\n".format(texte)).encode()
+                )
+
+            else:
+
+                conn.send("Texte vide\n".encode())
+
+        except Exception as e:
+
+            log("Erreur TTS : {}".format(e))
+
+            conn.send(
+                ("Erreur TTS : {}\n".format(str(e))).encode()
+            )
+
+    elif commande == "stop":
+
+        with _ctrl_lock:
+            _commande_ctrl["vx"]  = 0.0
+            _commande_ctrl["vy"]  = 0.0
+            _commande_ctrl["vth"] = 0.0
+
+        try:
+            motion.stopMove()
+        except:
+            pass
+
+        conn.send("Arret demande\n".encode())
+
+        return True
+
+    else:
+
+        conn.send(
+            "Commande inconnue : {}\n".format(commande).encode()
+        )
+
+    return False
+
+# ═════════════════════════════════════════════════════════════════════════════
+# SERVEUR CAMERA
+# ═════════════════════════════════════════════════════════════════════════════
 
 def serveur_camera():
+
     if not CAM_OK:
         log("Serveur camera desactive.")
         return
 
     srv_cam = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+
     srv_cam.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+
     srv_cam.bind(("0.0.0.0", PORT_CAM))
-    srv_cam.listen(5)  # Plusieurs clients simultanés possibles
+
+    srv_cam.listen(5)
+
     log("Serveur camera en attente (port {})...".format(PORT_CAM))
 
-    sub_id = video.subscribeCamera("NAOMove_cam", 0, 1, 11, 10)
+    sub_id = video.subscribeCamera(
+        "NAOMove_cam",
+        0,
+        1,
+        11,
+        10
+    )
+
     log("Camera souscrite : {}".format(sub_id))
 
     while True:
+
         if not select.select([srv_cam], [], [], 2.0)[0]:
             continue
+
         try:
+
             cam_conn, addr = srv_cam.accept()
-            log("Client camera connecte : {}".format(addr))
-            # Thread par client caméra
-            t = threading.Thread(target=_servir_camera, args=(cam_conn, sub_id))
+
+            log("Client camera : {}".format(addr))
+
+            t = threading.Thread(
+                target=_servir_camera,
+                args=(cam_conn, sub_id)
+            )
+
             t.setDaemon(True)
+
             t.start()
-        except Exception:
+
+        except:
             break
 
     try:
         video.unsubscribe(sub_id)
         srv_cam.close()
-    except: pass
+    except:
+        pass
 
 def _servir_camera(cam_conn, sub_id):
-    try:
-        while True:
-            try:
-                frame = video.getImageRemote(sub_id)
-                if frame is None:
-                    time.sleep(0.05)
-                    continue
-                w, h = frame[0], frame[1]
-                raw  = bytes(bytearray(frame[6]))
-                try:
-                    from PIL import Image as PILImage
-                    import io as _io
-                    img  = PILImage.frombytes("RGB", (w, h), raw)
-                    buf  = _io.BytesIO()
-                    img.save(buf, format="JPEG", quality=70)
-                    jpeg = buf.getvalue()
-                except ImportError:
-                    import Image as PILImage
-                    import StringIO as _sio
-                    img  = PILImage.fromstring("RGB", (w, h), raw)
-                    buf  = _sio.StringIO()
-                    img.save(buf, format="JPEG", quality=70)
-                    jpeg = buf.getvalue()
-                taille = struct.pack(">I", len(jpeg))
-                cam_conn.sendall(taille + jpeg)
-                time.sleep(0.1)
-            except Exception as e:
-                log("Erreur frame : {}".format(e))
-                break
-    finally:
-        try: cam_conn.close()
-        except: pass
 
-# ── Serveur principal (port 9561) — multi-sessions ───────────────────────────
+    try:
+
+        while True:
+
+            frame = video.getImageRemote(sub_id)
+
+            if frame is None:
+                time.sleep(0.05)
+                continue
+
+            w, h = frame[0], frame[1]
+
+            raw = bytes(bytearray(frame[6]))
+
+            try:
+
+                from PIL import Image as PILImage
+                import io as _io
+
+                img = PILImage.frombytes("RGB", (w, h), raw)
+
+                buf = _io.BytesIO()
+
+                img.save(buf, format="JPEG", quality=70)
+
+                jpeg = buf.getvalue()
+
+            except ImportError:
+
+                import Image as PILImage
+                import StringIO as _sio
+
+                img = PILImage.fromstring("RGB", (w, h), raw)
+
+                buf = _sio.StringIO()
+
+                img.save(buf, format="JPEG", quality=70)
+
+                jpeg = buf.getvalue()
+
+            cam_conn.sendall(
+                struct.pack(">I", len(jpeg)) + jpeg
+            )
+
+            time.sleep(0.1)
+
+    except Exception as e:
+
+        log("Client camera deconnecte : {}".format(e))
+
+    finally:
+
+        try:
+            cam_conn.close()
+        except:
+            pass
 
 t_cam = threading.Thread(target=serveur_camera)
+
 t_cam.setDaemon(True)
+
 t_cam.start()
 
+
+# ═════════════════════════════════════════════════════════════════════════════
+# SERVEUR PRINCIPAL
+# ═════════════════════════════════════════════════════════════════════════════
+
 server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+
+server.setsockopt(
+    socket.SOL_SOCKET,
+    socket.SO_REUSEADDR,
+    1
+)
+
 server.bind(("0.0.0.0", PORT_SERVER))
-server.listen(5)  # Accepter plusieurs connexions
+
+server.listen(5)
+
 log("En attente de connexion (port {})...".format(PORT_SERVER))
 
 while True:
+
     if not select.select([server], [], [], 1.0)[0]:
         continue
-    conn, addr = server.accept()
-    log("Nouvelle connexion : {}".format(addr))
 
-    # Lire la première ligne pour identifier le type de client
+    conn, addr = server.accept()
+
+    log("Connexion : {}".format(addr))
+
     first_line = ""
+
     try:
+
         conn.settimeout(10)
+
         while "\n" not in first_line:
             first_line += conn.recv(4096).decode()
+
         conn.settimeout(None)
+
     except Exception as e:
+
         log("Erreur handshake : {}".format(e))
+
         conn.close()
+
         continue
 
     premiere, reste = first_line.split("\n", 1)
+
     premiere = premiere.strip()
 
-    # ── Client contrôle manuel ──
+    # ── CONTROLE MANUEL ─────────────────────────────────────────────
+
     if premiere == "CONTROL":
-        log("Client controle manuel connecte.")
+
+        log("Client controle manuel.")
+
         init_robot(conn)
-        # Servir en boucle dans un thread pour ne pas bloquer
-        def _session_controle(c, r):
-            buf     = r
-            stopper = False
-            while not stopper:
+
+        def _session_ctrl(c, r):
+
+            buf = r
+
+            while True:
+
                 try:
+
                     if not select.select([c], [], [], 1.0)[0]:
                         continue
+
                     data = c.recv(1024).decode()
+
                     if not data:
                         break
+
                     buf += data
+
                     lignes = buf.split("\n")
-                    buf    = lignes[-1]
+
+                    buf = lignes[-1]
+
                     for cmd in lignes[:-1]:
-                        if traiter_commande(c, cmd):
-                            stopper = True
-                            break
+
+                        if traiter_commande_ctrl(c, cmd):
+                            return
+
                 except Exception as e:
-                    log("Erreur controle : {}".format(e))
+
+                    log("Erreur session ctrl : {}".format(e))
+
                     break
+
             c.close()
+
             log("Client controle deconnecte.")
-        t = threading.Thread(target=_session_controle, args=(conn, reste))
+
+        t = threading.Thread(
+            target=_session_ctrl,
+            args=(conn, reste)
+        )
+
         t.setDaemon(True)
+
         t.start()
 
-    # ── Client navigation (scene_idc.py) ──
+    # ── NAVIGATION ─────────────────────────────────────────────────
+
     else:
-        log("Client navigation connecte.")
+
+        log("Client navigation.")
+
         try:
+
             scene = json.loads(premiere)
+
             log("Scene recue ({} lignes).".format(len(scene)))
+
         except Exception as e:
-            log("Erreur JSON scene : {}".format(e))
+
+            log("Erreur JSON : {}".format(e))
+
             conn.close()
+
             continue
 
         init_robot(conn)
 
-        buf     = reste
-        stopper = False
-        while not stopper:
+        buf = reste
+
+        while True:
+
             try:
+
                 if not select.select([conn], [], [], 1.0)[0]:
                     continue
+
                 data = conn.recv(1024).decode()
+
                 if not data:
+
                     log("Client navigation deconnecte.")
+
                     break
+
                 buf += data
-                lignes  = buf.split("\n")
-                buf     = lignes[-1]
+
+                lignes = buf.split("\n")
+
+                buf = lignes[-1]
+
+                stopper = False
+
                 for cmd in lignes[:-1]:
-                    if traiter_commande(conn, cmd):
+
+                    if traiter_commande_itin(conn, cmd):
                         stopper = True
                         break
+
+                if stopper:
+                    break
+
             except Exception as e:
+
                 if "10054" in str(e) or "10053" in str(e):
                     log("Client deconnecte.")
                 else:
                     log("Erreur : {}".format(e))
+
                 break
 
         conn.close()
+
         log("Session navigation terminee.")

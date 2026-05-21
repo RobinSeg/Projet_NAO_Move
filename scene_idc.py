@@ -1,4 +1,32 @@
-# scene_idc.py
+# =============================================================================
+# scene_idc.py — Navigation autonome du robot (Python 3, subprocess)
+#
+# Lancé par NaoBridge quand l'utilisateur clique "▶ Lancer NAO".
+# Tourne indépendamment de l'interface tkinter.
+#
+# Étapes :
+#   1. Lit la scène JSON (grille 2D de symboles)
+#   2. Calcule le/les chemin(s) optimal(aux) par BFS
+#   3. Se connecte au serveur NAO sur port 9561
+#   4. Envoie les commandes de déplacement une par une
+#   5. Gère obstacles, contournement, navigation live (JSON relu si modifié)
+#
+# Communication stdout → NaoBridge :
+#   [NAO_POS] x y          → position courante du robot
+#   [NAO_CHEMIN] [[x,y]…]  → chemin BFS calculé
+#   [NAO_CHOIX_CHEMIN] […] → plusieurs chemins → demande choix utilisateur
+#   [NAO_CHOIX_OBSTACLE]   → obstacle robot réel → demande contourner/demi-tour
+#   [NAO_OBSTACLE_CASES]   → obstacle simulation → propose cases de contournement
+#
+# Communication stdin ← NaoBridge :
+#   "0"/"1"/…              → index du chemin choisi
+#   "case:x:y"             → case de contournement choisie
+#   "retour"               → demi-tour
+#
+# Variables d'environnement :
+#   NAO_SCENE_PATH : chemin vers le fichier JSON de la scène
+#   NAO_IP         : IP du robot (127.0.0.1 = simulation Chorégraphe)
+# =============================================================================
 import socket
 import threading
 import os
@@ -381,10 +409,18 @@ def _bfs_contournement(sc, depart, arrivee, exclure=None, priorite_itin=True):
         pass
 
     return []
+
+def recalculer_depuis_position_courante(sc):
+    """
+    Recalcule un chemin BFS depuis la position courante du robot (NAO)
+    jusqu'à BUT, en tenant compte de la scène mise à jour.
+    Retourne (positions, commandes) ou ([], []) si aucun chemin trouvé.
+    """
+    nouveau_chemin_pos = bfs_depuis(sc, (NAO[0], NAO[1]), BUT)
     if not nouveau_chemin_pos:
         return [], []
-    cmds = deduire_commandes(nouveau_chemin_pos, orientation)
-    return nouveau_chemin_pos, cmds
+    nouvelles_cmds = deduire_commandes(nouveau_chemin_pos, orientation)
+    return nouveau_chemin_pos, nouvelles_cmds
 
 # ── Boucle principale ─────────────────────────────────────────────────────────
 
@@ -555,8 +591,10 @@ while i < len(chemin) and not arret.is_set():
                     if (positions_chemin[k][0], positions_chemin[k][1]) == case_apres_obstacle:
                         idx_reprise = k
                         break
-                # Assembler : troncon + reste du chemin original
-                nouveau_chemin_pos = (troncon + positions_chemin[idx_reprise+1:]
+                # Assembler : troncon (sans doublon) + reste du chemin original
+                # troncon[-1] == case_apres_obstacle == positions_chemin[idx_reprise]
+                # → on garde troncon[:-1] + positions_chemin[idx_reprise:] pour éviter le doublon
+                nouveau_chemin_pos = (troncon[:-1] + positions_chemin[idx_reprise:]
                     if idx_reprise is not None else troncon)
                 nouvelles_cmds = deduire_commandes(nouveau_chemin_pos, orientation)
                 if nouvelles_cmds:
@@ -592,8 +630,8 @@ while i < len(chemin) and not arret.is_set():
                         if (positions_chemin[k][0], positions_chemin[k][1]) == case_apres_obstacle:
                             idx_reprise = k
                             break
-                    nouveau_chemin_pos = (nouveau_troncon +
-                        positions_chemin[idx_reprise+1:] if idx_reprise is not None
+                    nouveau_chemin_pos = (nouveau_troncon[:-1] +
+                        positions_chemin[idx_reprise:] if idx_reprise is not None
                         else nouveau_troncon)
                     nouvelles_cmds = deduire_commandes(nouveau_chemin_pos, orientation)
                     if nouvelles_cmds:
@@ -622,6 +660,7 @@ while i < len(chemin) and not arret.is_set():
 
     o_apres = orientation_apres(commande, orientation)
     dx, dy = calculer_deplacement(commande)
+    orientation = o_apres  # mise à jour explicite de l'orientation globale
     NAO[0] += dx; NAO[1] += dy
     historique_commandes.append(commande)
     _pos(NAO[0], NAO[1])
