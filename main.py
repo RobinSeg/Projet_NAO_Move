@@ -1,6 +1,17 @@
-# main.py
-# Point d'entrée de l'application NAO Move
-
+# =============================================================================
+# main.py — Point d'entrée de l'application NAO Move
+#
+# Rôle :
+#   - Crée la fenêtre principale et les 4 onglets
+#     (Éditeur de scène | Vue NAO | Contrôle Manuel | Logs)
+#   - Instancie NaoBridge (bus partagé entre tous les modules)
+#   - Gère la barre de connexion (simulation 127.0.0.1 / robot réel + IP)
+#   - Affiche les popups de choix : chemin BFS, obstacle, contournement
+#
+# Modes :
+#   Simulation  → IP 127.0.0.1, Chorégraphe en local
+#   Robot réel  → IP saisie par l'utilisateur, robot physique sur le réseau
+# =============================================================================
 import tkinter as tk
 import sys
 import os
@@ -302,13 +313,6 @@ class NaoApp:
                               bg="#f0f0f0", pady=4, padx=8)
         barre_conn.pack(side="top", fill="x")
 
-        tk.Button(
-            barre_conn, text="🚀 ServeurNao.bat",
-            font=("Arial", 9, "bold"), bg="#1d4ed8", fg="white",
-            relief="flat", padx=8, pady=2,
-            command=self._lancer_serveur_bat
-        ).pack(side="left", padx=(0, 12))
-
         tk.Label(barre_conn, text="Mode :", bg="#f0f0f0",
                  font=("Arial", 10, "bold")).pack(side="left", padx=(0, 4))
 
@@ -386,24 +390,6 @@ class NaoApp:
                   command=_ok).pack(pady=10)
         entry.bind("<Return>", lambda e: _ok())
         popup.bind("<Escape>", lambda e: popup.destroy())
-
-    def _lancer_serveur_bat(self):
-        import subprocess
-        # Cherche le .bat dans l'ordre : dossier exe, dossier script, resource_path
-        candidats = [
-            os.path.join(os.path.dirname(sys.executable), "ServeurNao.bat"),
-            os.path.join(os.path.dirname(os.path.abspath(__file__)), "ServeurNao.bat"),
-            resource_path("ServeurNao.bat"),
-        ]
-        bat = next((c for c in candidats if os.path.exists(c)), None)
-        if not bat:
-            self.bridge.log("ServeurNao.bat introuvable.", "ERROR")
-            return
-        try:
-            subprocess.Popen(["cmd", "/c", bat], cwd=os.path.dirname(bat))
-            self.bridge.log("ServeurNao.bat lancé depuis : {}".format(bat), "INFO")
-        except Exception as e:
-            self.bridge.log("Impossible de lancer ServeurNao.bat : {}".format(e), "ERROR")
 
     def _on_mode_change(self):
         mode = self.mode_var.get()

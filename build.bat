@@ -27,6 +27,7 @@ if errorlevel 1 (
 echo        Pillow OK.
 echo.
 
+
 :: Installation PyInstaller (compilation exe)
 echo [2/3] Installation de PyInstaller...
 pip install pyinstaller --quiet
@@ -46,14 +47,16 @@ if errorlevel 1 (
     pause
     exit /b 1
 )
+
 echo.
 echo ========================================
 echo    Compilation reussie !
 echo    Votre .exe est dans : dist\NAO Move.exe
 echo ========================================
 echo.
-echo NOTE : Pillow doit aussi etre installe sur
-echo la machine cible pour afficher la camera.
-echo (pip install Pillow)
+echo Fonctionnalites incluses :
+echo   - Camera robot
+echo   - Controle clavier
+echo   - TTS
 echo.
 pause
