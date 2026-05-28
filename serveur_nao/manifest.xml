@@ -1,5 +1,5 @@
 <?xml version='1.0' encoding='UTF-8'?>
-<package version="0.0.0" uuid="ser_mouv_nao-d5d6e6" installOnlyAtStartup="false">
+<package uuid="ser_mouv_nao-d5d6e6" installOnlyAtStartup="false" version="0.0.0">
  <names>
   <name lang="en_US">Untitled</name>
  </names>

@@ -15,7 +15,7 @@
       <BehaviorLayer name="behavior_layer1">
         <BehaviorKeyframe name="keyframe1" index="1">
           <Diagram>
-            <Box name="serveur scene" id="2" localization="8" tooltip="This box contains a basic python script and can be used to create any python script box you would like.&#x0A;&#x0A;To edit its script, double-click on it." x="148" y="23">
+            <Box name="serveur scene" id="2" localization="8" tooltip="This box contains a basic python script and can be used to create any python script box you would like.&#x0A;&#x0A;To edit its script, double-click on it." x="142" y="98">
               <bitmap>media/images/box/box-python-script.png</bitmap>
               <script language="4">
                 <content>
@@ -302,7 +302,7 @@ def _boucle_movetoward():
                 vth,
                 [
                     ["MaxStepX",         0.06],
-                    ["MaxStepY",         0.14],
+                    ["MaxStepY",         0.12],
                     ["MaxStepTheta",     0.4],
                     ["MaxStepFrequency", 0.6],
                     ["StepHeight",       0.04],

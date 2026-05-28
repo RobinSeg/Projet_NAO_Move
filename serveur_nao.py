@@ -281,7 +281,7 @@ def _boucle_movetoward():
                 vth,
                 [
                     ["MaxStepX",         0.06],
-                    ["MaxStepY",         0.14],
+                    ["MaxStepY",         0.12],
                     ["MaxStepTheta",     0.4],
                     ["MaxStepFrequency", 0.6],
                     ["StepHeight",       0.04],
