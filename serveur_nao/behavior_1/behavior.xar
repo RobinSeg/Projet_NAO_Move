@@ -64,14 +64,53 @@ def log(msg):
 # ── Scène (navigation itinéraire) ─────────────────────────────────────────────
 scene = None
 
+def lire_sonar_avant():
+    """
+    Lit la valeur du sonar avant du NAO via ALMemory.
+    Retourne True si un obstacle est détecté à moins de SEUIL_SONAR mètres.
+    Retourne False si le sonar est indisponible (simulation) ou rien détecté.
+    """
+    if not SONAR_OK or IP == "127.0.0.1":
+        return False
+    try:
+        val = memory.getData(
+            "Device/SubDeviceList/US/Front/Sensor/Value"
+        )
+        return float(val) < SEUIL_SONAR
+    except Exception:
+        return False
+
 def verifier_case(x, y):
+    """
+    Vérifie si une case est praticable.
+    Combine deux sources :
+      1. La scène JSON (obstacles statiques : X, 0, 1)
+      2. Le sonar avant (obstacles physiques en temps réel)
+    Si le sonar détecte un obstacle, la case est marquée "1" dans la scène
+    ET le fichier JSON est mis à jour → scene_idc.py détecte le changement
+    via recharger_scene() et déclenche le contournement automatiquement.
+    """
     if scene is None:
         return "OBSTACLE"
-
     if not (0 <= y < len(scene) and 0 <= x < len(scene[0])):
         return "OBSTACLE"
-
     if scene[y][x] in ("X", "0", "1"):
+        return "OBSTACLE"
+
+    # Vérification sonar (robot réel uniquement)
+    if lire_sonar_avant():
+        log("Sonar : obstacle detecte a moins de {}m, case [{},{}] marquee.".format(
+            SEUIL_SONAR, x, y))
+        # Marquer la case comme obstacle dans la scène locale
+        scene[y][x] = "1"
+        # Sauvegarder dans le JSON → scene_idc.py rechargera automatiquement
+        if scene_path_remote:
+            try:
+                with open(scene_path_remote, "w") as f:
+                    json.dump(scene, f)
+                log("Scene mise a jour : [{},{}] = 1".format(x, y))
+            except Exception as e:
+                log("Erreur sauvegarde scene : {}".format(e))
         return "OBSTACLE"
 
     return "OK"
@@ -90,6 +129,26 @@ except Exception as e:
     video  = None
     CAM_OK = False
     log("Camera non disponible : {}".format(e))
+
+# ── Sonar (détection d'obstacles physiques en mode robot réel) ────────────────
+try:
+    memory   = ALProxy("ALMemory", IP, PORT_NAO)
+    sonar    = ALProxy("ALSonar",  IP, PORT_NAO)
+    sonar.subscribe("NAOMove_sonar")
+    SONAR_OK = True
+    log("Sonar initialise.")
+except Exception as e:
+    memory   = None
+    sonar    = None
+    SONAR_OK = False
+    log("Sonar non disponible : {}".format(e))
+
+# Seuil sonar en mètres — en dessous = obstacle détecté
+SEUIL_SONAR = 0.40
+
+# Chemin du fichier JSON de la scène (reçu depuis scene_idc.py)
+# Permet au serveur de mettre à jour la scène quand un obstacle est détecté
+scene_path_remote = None
 
 # ── Initialisation commune ────────────────────────────────────────────────────
 
@@ -301,8 +360,8 @@ def _boucle_movetoward():
                 vy,
                 vth,
                 [
-                    ["MaxStepX",         0.08],
-                    ["MaxStepY",         0.14],
+                    ["MaxStepX",         0.06],
+                    ["MaxStepY",         0.12],
                     ["MaxStepTheta",     0.4],
                     ["MaxStepFrequency", 0.6],
                     ["StepHeight",       0.04],
@@ -780,9 +839,20 @@ while True:
         log("Client navigation.")
 
         try:
+            # Lire le chemin du fichier JSON (première ligne)
+            scene_path_buf = reste
+            while "\n" not in scene_path_buf:
+                scene_path_buf += conn.recv(4096).decode()
+            scene_path_line, reste = scene_path_buf.split("\n", 1)
+            scene_path_remote = scene_path_line.strip()
+            log("Chemin scene : {}".format(scene_path_remote))
 
-            scene = json.loads(premiere)
-
+            # Lire le contenu JSON de la scène (deuxième ligne)
+            scene_buf = reste
+            while "\n" not in scene_buf:
+                scene_buf += conn.recv(4096).decode()
+            scene_json, reste = scene_buf.split("\n", 1)
+            scene = json.loads(scene_json)
             log("Scene recue ({} lignes).".format(len(scene)))
 
         except Exception as e:
@@ -840,7 +910,14 @@ while True:
 
         conn.close()
 
-        log("Session navigation terminee.")]]>
+        log("Session navigation terminee.")
+
+        # Désabonner le sonar proprement
+        if SONAR_OK:
+            try:
+                sonar.unsubscribe("NAOMove_sonar")
+            except Exception:
+                pass]]>
                 </content>
               </script>
               <Input name="onLoad" type="1" type_size="1" nature="0" inner="1" tooltip="Signal sent when diagram is loaded." id="1" />

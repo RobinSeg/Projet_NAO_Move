@@ -230,7 +230,8 @@ client.connect((nao_ip, 9561))
 print("Connecte. En attente de l'initialisation du NAO...")
 sys.stdout.flush()
 
-client.send((json.dumps(scene) + "\n").encode())
+client.send((scene_path + "\n").encode())        # 1) Chemin du fichier JSON
+client.send((json.dumps(scene) + "\n").encode()) # 2) Contenu de la scène
 
 client.settimeout(60)
 buffer_init = ""
