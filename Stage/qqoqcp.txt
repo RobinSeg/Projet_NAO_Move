@@ -1,0 +1,17 @@
+Qui -Utilisateur
+Le système a été conçu pour un utilisateur souhaitant contrôler et superviser les déplacements du robot NAO.
+
+Quoi - Contrôle à distance
+La fonction principale du projet est de permettre le contrôle et la supervision du robot à distance.
+
+Où - PC Windows + robot NAO
+Le système fonctionne sur un PC Windows connecté au robot NAO via le réseau local.
+
+Quand - Stage
+Le projet a été développé durant la période du stage dans un objectif de démonstration fonctionnelle.
+
+Comment - Python , TCP/IP , BFS
+Le projet a été développé en Python avec une communication TCP/IP et un algorithme BFS pour la navigation.
+
+Pourquoi - Automatiser et superviser les déplacements, Démos expos/salons
+L’objectif du projet était d’automatiser et superviser les déplacements du robot à distance afin d'être utilisé pour les démonstrations lors d’expositions ou de salons.

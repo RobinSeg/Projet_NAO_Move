@@ -1,0 +1,22 @@
+
+Dans /Stage_Commandement_itineraire/
+
+FAIT
+• mise en place du serveur sur port 9561 dans Choregraphe (serveur_nao.py)
+• mise en place d'une scene (scene_[...].py)
+	• calcul de l'itinéraire grâce aux commandes données en amont (scene_commande_donne_chemin.py)
+	• calcul des commandes par rapport à l'itinéraire donné. (scene_chemin_donne_commande.py) Utilisation BFS
+• scene maker + dessinateur d'itineraire
+
+
+A FAIRE
+• Corriger bug 2 chemins meme distance (fourche), Ecran en diagonale avec Robot/pas adjacent (forcer l'Ecran à être à côté de la case robot).
+• Changement Scene en live
+• Adaptabilité itinéraire
+
+
+REMARQUE
+• Choregraphe/Serveur pas instinctif
+• Bouton trop petit ? (undo / redo)
+• Optimization possible (Zoom / Taille dans Editeur) (zoom sur molette et parcours de la scene trop grand avec ctrl molette et shift molette (x,y))
+
